@@ -5,6 +5,8 @@
 // 6.5 SJR & Quartile Matrix: SJR vs. FWCI scatter (focus), quartile distributions and journal crosswalk.
 import { load, esc, fmt, pct, badge, kpis, bindKpiDefs, table, chart, canvasIn, SEA, SEA_NAMES, QUARTILES, QUARTILE_LABEL, quartileColor, OA_LABEL, oaLink,
   pageHead, panel, body, viewData, provenance, insight, drawer, emptyState, resetRoute , journalUrl, extLink, countryChips, bindCountryChips } from '../lib.js';
+import { doajBadge, inDoaj } from '../lib.js';
+import { openProfile, profileLink } from '../lib.js';
 import { setSearchHandler, searchId, setCountryChips } from '../lib.js';
 
 export async function render(main, [kind = '', ref = '']) {
@@ -48,15 +50,7 @@ export async function render(main, [kind = '', ref = '']) {
     && (!f.diamond || j.diamond_share >= 0.5 || j.sjr_diamond)
     && (!f.text || `${j.name} ${j.issn_l || ''}`.toLowerCase().includes(f.text.toLowerCase())));
   const scopeText = () => [f.ccs.length < SEA.length && `countries ${f.ccs.map((c) => SEA_NAMES[c]).join(', ') || 'none'}`, f.q && `quartile ${f.q}`, f.oa && `OA route ${OA_LABEL[f.oa]}`, f.diamond && 'Diamond OA only', f.text && `search “${f.text}”`].filter(Boolean).join('; ') || 'All SEA OA journals (≥ 20 works)';
-  const open = (j) => drawer.open({ title: j.name, subtitle: `ISSN-L ${j.issn_l || 'Not available'}`, html: `<dl class="dl">
-      <dt>Publisher</dt><dd>${esc(j.publisher || 'Not available')}</dd><dt>Lead SEA country</dt><dd>${esc(SEA_NAMES[j.lead_cc] || 'Not available')}</dd>
-      <dt>SJR quartile</dt><dd>${badge(j.quartile)}</dd><dt>SJR 2025</dt><dd>${j.sjr ? fmt(j.sjr, 3) : 'Not indexed'}</dd><dt>SJR H index</dt><dd>${j.sjr_h ?? 'Not indexed'}</dd>
-      <dt>Subject areas (SJR)</dt><dd>${esc(j.areas || 'Not indexed')}</dd><dt>Main OA route</dt><dd>${esc(OA_LABEL[j.main_oa] || j.main_oa || 'Not available')}</dd>
-      <dt>Diamond share of works</dt><dd>${pct(j.diamond_share, 1, true)}</dd><dt>In DOAJ</dt><dd>${j.is_in_doaj ? 'Yes' : 'No / not available'}</dd>
-      <dt>APC (USD, OpenAlex)</dt><dd>${j.apc_usd ?? 'Not available'}</dd><dt>SEA OA works</dt><dd>${fmt(j.works)} (${j.first_year}–${j.last_year})</dd>
-      <dt>Mean FWCI</dt><dd>${j.mean_fwci === null ? 'Insufficient data' : fmt(j.mean_fwci, 2)}</dd><dt>Citations received</dt><dd>${fmt(j.cites_in)}</dd>
-      <dt>NIR</dt><dd>${j.nir === null ? 'Insufficient data' : pct(j.nir, 1)}</dd></dl>
-      <p>${extLink(journalUrl(j), j.url ? 'Visit journal website' : 'ISSN Portal record')}</p>` });
+  const open = (j) => openProfile('journal', { id: j.id, name: j.name });
 
   let sc = null; let cq = null;
   function drawScatter() {
@@ -109,9 +103,9 @@ export async function render(main, [kind = '', ref = '']) {
   viewData(main, 's-dq', () => ({ scope: 'Diamond OA journals with ≥ 20 SEA OA works', columns: [{ key: 'quartile', label: 'SJR quartile' }, { key: 'journals', label: 'Journals', num: true }, { key: 'works', label: 'SEA OA works', num: true }], rows: dq }));
 
   const cols = [
-    { key: 'name', label: 'Journal', sticky: true, render: (r) => extLink(journalUrl(r), esc(r.name)), csv: (r) => r.name },
+    { key: 'name', label: 'Journal', sticky: true, render: (r) => profileLink('journal', { id: r.id, name: r.name }, r.name) + doajBadge(r.id), csv: (r) => r.name },
     { key: 'issn_l', label: 'ISSN-L', render: (r) => `<code class="code-sm">${esc(r.issn_l || '–')}</code>` },
-    { key: 'publisher', label: 'Publisher' },
+    { key: 'publisher', label: 'Publisher', render: (r) => (r.publisher ? profileLink('publisher', { id: r.publisher, name: r.publisher }, r.publisher) : ''), csv: (r) => r.publisher || '' },
     { key: 'lead_cc', label: 'Lead country', render: (r) => esc(SEA_NAMES[r.lead_cc] || r.lead_cc || ''), csv: (r) => SEA_NAMES[r.lead_cc] || '' },
     { key: 'quartile', label: 'SJR quartile', render: (r) => badge(r.quartile) },
     { key: 'sjr', label: 'SJR 2025', num: true, render: (r) => (r.sjr ? fmt(r.sjr, 3) : 'Not indexed') },

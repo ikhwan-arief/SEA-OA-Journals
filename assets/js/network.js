@@ -31,10 +31,10 @@ export function renderNetwork(stage, data, opts = {}) {
   let maxW = 0;
   data.edges.forEach(([, , w]) => { maxW = Math.max(maxW, w); });
   data.edges.forEach(([a, b, w]) => {
-    if (ids.has(String(a)) && ids.has(String(b))) g.addEdge(String(a), String(b), { weight: w, kind: 'link', size: 0.4 + 2.6 * (w / (maxW || 1)) });
+    if (ids.has(String(a)) && ids.has(String(b))) g.addEdge(String(a), String(b), { weight: w, kind: 'link', size: 1.1 + 3.4 * Math.sqrt(w / (maxW || 1)) }); // thicker floor; sqrt keeps weak links visible
   });
   (data.citations || []).forEach(([a, b]) => {
-    if (ids.has(String(a)) && ids.has(String(b))) g.addEdge(String(a), String(b), { kind: 'cite', type: 'arrow', size: 1.4, weight: 1 });
+    if (ids.has(String(a)) && ids.has(String(b))) g.addEdge(String(a), String(b), { kind: 'cite', type: 'arrow', size: 2, weight: 1 });
   });
 
   const state = { colorBy: opts.colorBy || 'cluster', sizeBy: opts.sizeBy || null, selected: null, neighbours: new Set(),
@@ -74,7 +74,7 @@ export function renderNetwork(stage, data, opts = {}) {
     edgeReducer: (e, a) => {
       const [s, t] = g.extremities(e);
       // VOSviewer-style: links take the colour of their source cluster, translucent
-      const r = { ...a, color: a.kind === 'cite' ? 'rgba(234,88,12,0.75)' : hexA(nodeColor(g.getNodeAttributes(s)), 0.28) };
+      const r = { ...a, color: a.kind === 'cite' ? 'rgba(234,88,12,0.75)' : hexA(edgeTone(nodeColor(g.getNodeAttributes(s))), 0.62) };
       if (hiddenNode(s, g.getNodeAttributes(s)) || hiddenNode(t, g.getNodeAttributes(t))) { r.hidden = true; return r; }
       if (a.kind === 'cite') r.hidden = !state.directed;
       else if (state.directed || a.weight < state.minW) r.hidden = true;
@@ -209,6 +209,15 @@ export function rankMatch(label, nq) {
   if ((' ' + l).includes(' ' + nq)) return 2; return l.includes(nq) ? 3 : 4;
 }
 
+/** Darkens very light cluster colours (yellow, light green, ...) so their links stay visible on the light canvas. */
+function edgeTone(color) {
+  const m = String(color).match(/^#([0-9a-f]{6})$/i); if (!m) return color;
+  let [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (lum > 0.42) { const k = 0.42 / lum; [r, g, b] = [r, g, b].map((v) => Math.round(v * k)); }
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function hexA(color, alpha) {
   if (color.startsWith('rgba')) return color.replace(/[\d.]+\)$/, `${alpha})`);
   if (color.startsWith('rgb(')) return color.replace('rgb(', 'rgba(').replace(')', `,${alpha})`);
@@ -233,7 +242,7 @@ export function legendHtml(nodes, colorBy) {
 }
 
 export function metricsHtml(meta, light = false) {
-  const rows = [['Nodes', fmt(meta.nodes)], ['Links (after pruning)', fmt(meta.edges)], ['Communities (Louvain)', fmt(meta.communities)],
+  const rows = [['Items on the map', fmt(meta.nodes)], ['Links shown (weakest removed)', fmt(meta.edges)], ['Clusters (Louvain)', fmt(meta.communities)],
     ['Modularity Q', fmt(meta.modularity, 3)], ['Avg. clustering coeff.', fmt(meta.avg_clustering, 3)], ['Density', fmt(meta.density, 4)]];
   if (meta.directed_edges) rows.push(['Direct citations', fmt(meta.directed_edges)]);
   if (meta.isolates_removed) rows.push(['Unlinked items not mapped', fmt(meta.isolates_removed)]);

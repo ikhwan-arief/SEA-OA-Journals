@@ -5,6 +5,7 @@
 // 6.1 Regional OA Observatory (11-country comparator).
 import { load, tryLoad, kpis, bindKpiDefs, fmt, compact, pct, esc, table, chart, canvasIn, numberAxis, SEA, SEA_NAMES, COUNTRY_COLORS,
   OA_STATUSES, OA_LABEL, oaColor, QUARTILES, QUARTILE_LABEL, quartileColor, pageHead, panel, body, viewData, provenance, insight, emptyState, resetRoute, countryChips, bindCountryChips, setCountryChips } from '../lib.js';
+import { openProfile, profileLink } from '../lib.js';
 import { setSearchHandler, searchId } from '../lib.js';
 
 export async function render(main) {
@@ -55,7 +56,7 @@ export async function render(main) {
 
   // ----- comparator table
   const cols = [
-    { key: 'name', label: 'Country', render: (r) => `<a href="#/country/${r.cc}">${esc(r.name)}</a>` },
+    { key: 'name', label: 'Country', render: (r) => profileLink('country', { id: r.cc, name: r.name }, r.name), csv: (r) => r.name },
     { key: 'oa_works', label: 'OA works', num: true, render: (r) => fmt(r.oa_works) },
     { key: 'all_works', label: 'All works', num: true, render: (r) => fmt(r.all_works) },
     { key: 'oa_share', label: 'OA share (%)', num: true, render: (r) => pct(r.oa_share) },

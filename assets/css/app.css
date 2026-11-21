@@ -412,6 +412,9 @@ details.def summary { cursor: pointer; color: var(--soa-primary); font-weight: 6
 .panel .net-stage { min-height: 600px; border: 1px solid var(--soa-outline-strong); border-radius: var(--soa-radius-lg); overflow: hidden; }
 .panel .legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; max-height: none; }
 .heat { display: block; padding: 4px 8px; border-radius: var(--soa-radius-xs); text-align: right; font-variant-numeric: tabular-nums; }
+.heat-wrap { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
+.heat-wrap thead th { white-space: nowrap; }
+.heat-wrap td.sticky, .heat-wrap th.sticky { min-width: 200px; max-width: 260px; box-shadow: 1px 0 0 var(--soa-outline); }
 .heat.na { color: var(--soa-text-muted); background: var(--soa-surface-muted); }
 
 /* Normalized citation impact section (Citation Inflow) */
@@ -462,3 +465,18 @@ html, body { height: auto; min-height: 100%; }
 #cchips .chip:disabled, .scope-bar .btn:disabled { opacity: .45; cursor: not-allowed; }
 .search-results a small.dest { display: block; margin: 1px 0 0; font-size: .6875rem; color: var(--soa-primary); }
 .search-results h3 .here { margin-left: 6px; padding: 0 6px; border-radius: var(--soa-radius-pill); background: var(--soa-primary-soft); color: var(--soa-primary-hover); text-transform: none; letter-spacing: 0; }
+/* DOAJ badge next to journal names */
+a.doaj, span.doaj { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; font: 600 .625rem/1.15rem var(--soa-font); letter-spacing: .02em;
+  color: #fff; background: #a8550a; text-decoration: none; vertical-align: 1px; white-space: nowrap; }
+a.doaj:hover, a.doaj:focus-visible { background: #7f3f05; color: #fff; }
+/* entity profile panel */
+.profile-means { background: var(--soa-surface-muted); border: 1px solid var(--soa-outline); border-radius: var(--soa-radius-md); padding: 10px 12px; margin: 4px 0 8px; }
+.profile-means p:first-child { margin-top: 0; }
+.profile-means ul { margin: 6px 0; padding-left: 18px; }
+.profile-means li { margin: 3px 0; line-height: 1.45; }
+.plinks { display: flex; flex-wrap: wrap; gap: 6px; }
+a.plink { color: var(--soa-link, var(--soa-primary)); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
+/* publication-year range control in scope bars */
+.yr-range { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .8125rem; }
+.yr-range .lbl { font-weight: 600; color: var(--soa-text-muted); }
+.yr-range select { min-width: 0; width: auto; padding: 4px 8px; }

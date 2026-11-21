@@ -1,6 +1,6 @@
-# SEA-OA-Journals
+# SEA Open Access Observatory
 
-Southeast Asia Open-Access Research Observatory: an interactive dashboard of open-access research from the
+Research, journals and citation flows in Southeast Asia: an interactive dashboard of open-access research from the
 11 Southeast Asian countries (Brunei, Cambodia, Indonesia, Laos, Malaysia, Myanmar, the Philippines, Singapore,
 Thailand, Timor-Leste and Vietnam).
 
@@ -12,7 +12,9 @@ Thailand, Timor-Leste and Vietnam).
 - Experts & Topics and Network Explorer (journal, paper, co-citation, co-authorship and institutional networks)
 - OA Citation Inflow, including a Normalized Citation Impact analysis (field-, year- and document-type-normalized,
   with bootstrap intervals and venue-tier stratification)
+- Journal Landscape (the ecosystem of journals hosted in Southeast Asia: indexing, DOAJ, Diamond OA, APCs, growth)
 - SJR Matrix and Scholarly Research Flows
+- Profile panels for journals, publishers, institutions, countries, expert authors, subfields and publications
 - Methodology page describing every indicator
 
 ## Data sources

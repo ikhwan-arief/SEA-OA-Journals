@@ -5,6 +5,8 @@
 // 6.4 OA Citation Inflow: citations to SEA works split by the access type of the citing work.
 import { load, esc, fmt, compact, pct, badge, kpis, bindKpiDefs, table, chart, canvasIn, numberAxis, SEA_NAMES, OA_LABEL, oaColor,
   QUARTILES, QUARTILE_LABEL, quartileColor, oaLink, css, pageHead, panel, body, viewData, provenance, insight, drawer , journalUrl, extLink, countryChips, bindCountryChips, destroyCharts, addPngButtons, SEA } from '../lib.js';
+import { doajBadge, inDoaj } from '../lib.js';
+import { openProfile, profileLink } from '../lib.js';
 import { setSearchHandler, searchId } from '../lib.js';
 import { renderNcs } from './inflow_ncs.js';
 import { inflowForSelection } from './inflow_agg.js';
@@ -17,13 +19,21 @@ const CELLS = [
 ];
 
 let SEL = null; // selected SEA countries (module state, kept while the page is open)
+let YR = null; // [from, to] publication years of the cited SEA works; null = all years
 
 export async function render(main) {
   if (!SEL) SEL = [...SEA];
   const sel = SEL; const allSel = sel.length === SEA.length; const inSel = (cc) => sel.includes(cc);
   const d0 = await load('inflow/inflow_summary.json');
-  // a country selection replaces the region-wide aggregates with deduplicated per-country-mask ones
-  const d = allSel ? d0 : { ...d0, ...inflowForSelection(await load('inflow/cinflow.json'), sel) };
+  const ci = await load('inflow/cinflow.json');
+  const [YMIN, YMAX] = ci.years;
+  const [ya, yb] = YR || [YMIN, YMAX]; const allYears = ya === YMIN && yb === YMAX;
+  const yLabel = (y) => (y === YMIN ? `before ${YMIN + 1}` : String(y));
+  const yearTxt = allYears ? 'all publication years' : `works published ${yLabel(ya)}${ya === yb ? '' : `–${yb}`}`;
+  // a country or year selection replaces the region-wide aggregates with deduplicated per-mask, per-year ones
+  const d = allSel && allYears ? d0 : { ...d0, ...inflowForSelection(ci, sel, ya, yb),
+    country_nir: allYears ? d0.country_nir : SEA.map((cc) => { const x = inflowForSelection(ci, [cc], ya, yb); const toOa = x.matrix.filter((m) => m.cited_oa).reduce((a, m) => a + m.citations, 0);
+      const cl = x.matrix.find((m) => m.cited_oa && !m.citing_oa).citations; return { cc, citations: toOa, closed: cl, nir: toOa ? (100 * cl) / toOa : 0 }; }).filter((r) => r.citations) };
   const selName = allSel ? 'all SEA countries' : sel.map((c) => SEA_NAMES[c]).join(', ');
   const cell = (citedOa, citingOa) => (d.matrix.find((m) => m.cited_oa === citedOa && m.citing_oa === citingOa) || {}).citations || 0;
   const tot = d.matrix.reduce((a, m) => a + m.citations, 0) || 1;
@@ -37,13 +47,18 @@ export async function render(main) {
       sub: `ratio ${d.car_oa_vs_closed ? `${fmt(d.car_oa_vs_closed, 2)}×` : 'not available'} (descriptive)`,
       def: 'Citation Advantage Ratio (CAR) = citations per SEA OA work ÷ citations per SEA closed work, both counted from snapshot links. Differences in field, age and venue are not controlled.' },
   ];
-  const scope = `SEA works (OA, plus closed works as contrast) · ${allSel ? 'all SEA countries' : `countries: ${selName} (each work once)`}; citation links in the OpenAlex snapshot`;
-  const scopeRW = 'All SEA countries (region-wide; this panel cannot be filtered by country); citation links in the OpenAlex snapshot';
+  const scope = `SEA works (OA, plus closed works as contrast) · ${allSel ? 'all SEA countries' : `countries: ${selName} (each work once)`} · ${yearTxt}; citation links in the OpenAlex snapshot`;
+  const scopeRW = 'All SEA countries and publication years (this panel cannot be filtered by country or year); citation links in the OpenAlex snapshot';
   main.innerHTML = `
     ${pageHead('OA Citation Inflow', 'To what extent do Southeast Asian OA works receive citations from closed / paywalled publications, and how do citations flow between access types?')}
     <div class="scope-bar" role="group" aria-label="Country filter">${countryChips(sel)}
+      <div class="yr-range" role="group" aria-label="Publication years of the cited SEA works"><span class="lbl">Publication years</span>
+        <select id="iy0" aria-label="From year">${Array.from({ length: YMAX - YMIN + 1 }, (_, k) => YMIN + k).map((y) => `<option value="${y}" ${y === ya ? 'selected' : ''}>${yLabel(y)}</option>`).join('')}</select>
+        <span>to</span><select id="iy1" aria-label="To year">${Array.from({ length: YMAX - YMIN + 1 }, (_, k) => YMIN + k).map((y) => `<option value="${y}" ${y === yb ? 'selected' : ''}>${yLabel(y)}</option>`).join('')}</select></div>
       <button type="button" class="btn ghost" id="ccreset">Reset filters</button>
-      <p class="note" style="flex-basis:100%;margin:0">${allSel ? 'All countries selected.' : `Showing works with at least one author affiliation in ${esc(selName)}; each work and citation link is counted once (no double counting of co-authored works). Journal tables use the journal's lead country. <strong>Region-wide (not filterable):</strong> SJR quartile of the citing venue and closed venues citing SEA OA works, because the citing venue is not stored per cited work.`}</p></div>
+      <p class="note" style="flex-basis:100%;margin:0">${allSel && allYears ? 'All countries and publication years.'
+        : `Showing SEA works published ${esc(allYears ? 'in any year' : yearTxt.replace('works published ', ''))}${allSel ? ' (all countries)' : ` with at least one author affiliated in ${esc(selName)}`}; each work and citation link is counted once.
+          <strong>Not filtered${allSel ? ' by year' : ''}:</strong> the SJR quartile of the citing venue and the closed-venue table (the citing venue is not stored per cited work)${allYears ? '' : ', and the SEA OA journal table (journal totals)'}. The normalized-impact section has its own cohort and window controls.`}</p></div>
     ${kpis(items)}
     <div class="grid">
       ${panel('i-mx', 'Cross-access citation matrix', 'Rows: access type of the citing work → columns: access type of the cited SEA work (citation counts)', 'span-5')}
@@ -51,11 +66,11 @@ export async function render(main) {
       ${panel('i-st', 'Citations per work by OA route', 'Citations per SEA OA work for each OA route, relative to SEA closed works (ratio)', 'span-6')}
       ${panel('i-rg', 'Citing regions', 'Citations to SEA OA works by world region of the citing work\'s first listed affiliation country', 'span-6')}
       <div class="span-12 grid" id="ncs-sec"></div>
-      ${panel('i-cq', 'SJR quartile of the citing venue', `Citations to SEA OA works by best SJR quartile of the citing venue and citing access type${allSel ? '' : ' · region-wide (not filtered by country)'}`, 'span-6')}
+      ${panel('i-cq', 'SJR quartile of the citing venue', `Citations to SEA OA works by best SJR quartile of the citing venue and citing access type${allSel && allYears ? '' : ' · region-wide, all years (not filterable)'}`, 'span-6')}
       ${panel('i-cn', 'NIR by SEA country', 'NIR of each country\'s OA works (full counting)', 'span-6')}
       ${panel('i-pen', 'SEA OA journals by citations from non-OA literature', 'Journals with ≥ 500 received citations', 'span-12',
         '<div class="seg" role="group" aria-label="Sort basis"><button type="button" aria-pressed="true" data-v="vol">By non-OA citations</button><button type="button" aria-pressed="false" data-v="nir">By NIR</button></div>')}
-      ${panel('i-cj', 'Closed / paywalled venues citing SEA OA works most', `Citing venues by number of citations to SEA OA works${allSel ? '' : ' · region-wide (not filtered by country)'}`, 'span-12')}
+      ${panel('i-cj', 'Closed / paywalled venues citing SEA OA works most', `Citing venues by number of citations to SEA OA works${allSel && allYears ? '' : ' · region-wide, all years (not filterable)'}`, 'span-12')}
       ${insight('Interpretation', `<ul><li>Inflow from non-OA literature shows <em>where</em> SEA OA research is used; on its own it is not evidence of quality or prestige.</li>
         <li>Only links resolvable inside the snapshot are counted. Citing works without affiliation data are reported as “Unattributed”.</li>
         <li>The citation-per-work ratio is descriptive and does not control for field, publication year or venue.</li></ul>`)}
@@ -105,7 +120,7 @@ export async function render(main) {
     { label: 'OA citing', data: cq.map((r) => r.oa), backgroundColor: cq.map((r) => quartileColor(r.citing_quartile)) + '', borderColor: css('--soa-access-open'), borderWidth: 2 }] },
   options: { scales: { y: numberAxis('Citations (count)'), x: { title: { display: true, text: 'SJR quartile of citing venue' } } },
     plugins: { legend: { labels: { generateLabels: () => [{ text: 'Non-OA citing (outlined red)', fillStyle: '#fff', strokeStyle: css('--soa-access-closed'), lineWidth: 2 }, { text: 'OA citing (outlined teal)', fillStyle: '#fff', strokeStyle: css('--soa-access-open'), lineWidth: 2 }] } } } } });
-  viewData(main, 'i-cq', () => ({ scope: allSel ? scope : scopeRW, columns: [{ key: 'citing_quartile', label: 'Citing venue quartile' }, { key: 'closed', label: 'Non-OA citing', num: true }, { key: 'oa', label: 'OA citing', num: true }], rows: cq }));
+  viewData(main, 'i-cq', () => ({ scope: allSel && allYears ? scope : scopeRW, columns: [{ key: 'citing_quartile', label: 'Citing venue quartile' }, { key: 'closed', label: 'Non-OA citing', num: true }, { key: 'oa', label: 'OA citing', num: true }], rows: cq }));
 
   const ncols = [
     { key: 'cc', label: 'Country', render: (r) => `<a href="#/country/${r.cc}">${esc(SEA_NAMES[r.cc])}</a>`, csv: (r) => SEA_NAMES[r.cc] },
@@ -117,11 +132,9 @@ export async function render(main) {
   table(body(main, 'i-cn'), ncols, cnRows, { pageSize: 11, search: false, sortKey: 'nir', caption: 'NIR by SEA country' });
   viewData(main, 'i-cn', () => ({ scope, columns: ncols, rows: cnRows }));
 
-  const openJ = (r) => drawer.open({ title: r.name, subtitle: 'SEA OA journal · citation inflow', html: `<dl class="dl"><dt>Lead country</dt><dd>${esc(SEA_NAMES[r.lead_cc] || 'Not available')}</dd>
-    <dt>SJR quartile</dt><dd>${badge(r.quartile)}</dd><dt>SEA OA works</dt><dd>${fmt(r.works)}</dd><dt>Citations received</dt><dd>${fmt(r.cites_in)}</dd>
-    <dt>From non-OA works</dt><dd>${fmt(r.cites_closed)}</dd><dt>NIR</dt><dd>${pct(r.nir, 2)}</dd></dl><p>${extLink(journalUrl(r), 'Visit journal website')}</p>` });
+  const openJ = (r) => openProfile('journal', { id: r.id, name: r.name });
   const pcols = [
-    { key: 'name', label: 'Journal' },
+    { key: 'name', label: 'Journal', render: (r) => profileLink('journal', { id: r.id, name: r.name }, r.name) + doajBadge(r.id), csv: (r) => r.name },
     { key: 'lead_cc', label: 'Lead country', render: (r) => esc(SEA_NAMES[r.lead_cc] || ''), csv: (r) => SEA_NAMES[r.lead_cc] || '' },
     { key: 'quartile', label: 'SJR quartile', render: (r) => badge(r.quartile) },
     { key: 'works', label: 'SEA OA works', num: true, render: (r) => fmt(r.works) },
@@ -139,13 +152,13 @@ export async function render(main) {
   });
   viewData(main, 'i-pen', () => ({ scope, columns: pcols, rows: penRows }));
   const jcols = [
-    { key: 'name', label: 'Citing venue', render: (r) => extLink(journalUrl(r), esc(r.name)), csv: (r) => r.name },
+    { key: 'name', label: 'Citing venue', render: (r) => profileLink('journal', { id: r.id, name: r.name }, r.name) + doajBadge(r.id), csv: (r) => r.name },
     { key: 'publisher', label: 'Publisher' },
     { key: 'quartile', label: 'SJR quartile', render: (r) => badge(r.quartile) },
     { key: 'citations', label: 'Non-OA citations to SEA OA', num: true, render: (r) => fmt(r.citations) },
   ];
   table(body(main, 'i-cj'), jcols, d.top_closed_citing_journals, { pageSize: 10, sortKey: 'citations', caption: 'Closed venues citing SEA OA works' });
-  viewData(main, 'i-cj', () => ({ scope: allSel ? scope : scopeRW, columns: jcols, rows: d.top_closed_citing_journals }));
+  viewData(main, 'i-cj', () => ({ scope: allSel && allYears ? scope : scopeRW, columns: jcols, rows: d.top_closed_citing_journals }));
   await renderNcs(main, main.querySelector('#ncs-sec'), sel);
   const again = async () => { destroyCharts(); await render(main); addPngButtons(main); };
   setSearchHandler({ kinds: { journals: 'open citation inflow', countries: 'filter by country' }, run: (k, r) => {
@@ -154,5 +167,8 @@ export async function render(main) {
     if (j) { openJ(j); return; }
     drawer.open({ title: r.n, subtitle: 'Citation inflow', html: `<p>This journal is not among the journals listed on this page (journals with ≥ 500 received citations, top 50 by volume or NIR).</p><p><a href="${esc(r.h)}">Open its profile in SJR Matrix →</a></p>` }); } });
   bindCountryChips(main, (v) => { SEL = v; again(); });
-  main.querySelector('#ccreset').addEventListener('click', () => { SEL = [...SEA]; again(); });
+  main.querySelector('#ccreset').addEventListener('click', () => { SEL = [...SEA]; YR = null; again(); });
+  ['#iy0', '#iy1'].forEach((q) => main.querySelector(q).addEventListener('change', () => {
+    const a = Number(main.querySelector('#iy0').value); const b = Number(main.querySelector('#iy1').value);
+    YR = [Math.min(a, b), Math.max(a, b)]; if (YR[0] === YMIN && YR[1] === YMAX) YR = null; again(); }));
 }

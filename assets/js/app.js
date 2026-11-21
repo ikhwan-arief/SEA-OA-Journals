@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Ikhwan Arief. Copyright held by the application developer.
  */
 // Command Center shell: hash router, responsive sidebar, breadcrumbs, snapshot badge and global search.
-import { addPngButtons, destroyCharts, drawer, errorState, esc, hideTip, load, setMeta, skeleton, tryLoad, fmt, openInstitution, setSearchHandler, getSearchHandler } from './lib.js';
+import { addPngButtons, destroyCharts, drawer, errorState, esc, hideTip, load, setMeta, skeleton, tryLoad, fmt, openInstitution, openProfile, loadDoaj, doajBadge, searchId, setSearchHandler, getSearchHandler } from './lib.js';
 
 const routes = {
   overview: { label: 'Regional Overview', mod: () => import('./views/overview.js') },
@@ -11,6 +11,7 @@ const routes = {
   experts: { label: 'Experts & Topics', mod: () => import('./views/experts.js') },
   networks: { label: 'Network Explorer', mod: () => import('./views/networks.js') },
   inflow: { label: 'Citation Inflow', mod: () => import('./views/inflow.js') },
+  journals: { label: 'Journal Landscape', mod: () => import('./views/journals.js') },
   sjr: { label: 'SJR Matrix', mod: () => import('./views/sjr.js') },
   sankey: { label: 'Research Flows', title: 'Scholarly Research Flows', mod: () => import('./views/sankey.js') },
   about: { label: 'Methodology & Data Coverage', mod: () => import('./views/about.js') },
@@ -30,8 +31,8 @@ async function render() {
   document.querySelectorAll('.nav a').forEach((a) => {
     if (a.dataset.route === route) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
-  document.getElementById('crumbs').innerHTML = `<span>SEA-OA-Journals</span><span aria-hidden="true">/</span><strong>${esc(routes[route].label)}</strong>`;
-  document.title = `${routes[route].title || routes[route].label} · SEA-OA-Journals`;
+  document.getElementById('crumbs').innerHTML = `<span>SEA Open Access Observatory</span><span aria-hidden="true">/</span><strong>${esc(routes[route].label)}</strong>`;
+  document.title = `${routes[route].title || routes[route].label} · SEA Open Access Observatory`;
   closeNav();
   drawer.close();
   const main = document.getElementById('main');
@@ -97,7 +98,7 @@ function initSearch() {
     if (q.length < 2) { hide(); return; }
     let ix;
     try { ix = await ensure(); } catch (e) { box.innerHTML = '<div class="none">Search index not available yet.</div>'; box.hidden = false; return; }
-    const hd = getSearchHandler(); const here = { institutions: 'open institution profile', ...((hd && hd.kinds) || {}) };
+    const hd = getSearchHandler(); const here = { institutions: 'open institution profile', journals: 'open journal profile', authors: 'open author profile', ...((hd && hd.kinds) || {}) };
     const cur = routes[parse().route].label;
     // kinds the active tab can show come first
     const ordered = [...groups].sort((a, b) => (here[b[0]] ? 1 : 0) - (here[a[0]] ? 1 : 0));
@@ -109,7 +110,7 @@ function initSearch() {
     if (hd && hd.extra) { let ex = []; try { ex = hd.extra(input.value) || []; } catch (e) { ex = []; } if (ex.length) res.unshift(['here', 'On this map', ex]); }
     items = [];
     const dest = (k, r) => (k === 'here' ? here.here : here[k] ? `${here[k]} · ${cur}` : `opens ${(routes[String(r.h).replace(/^#\//, '').split('/')[0]] || {}).label || ''}`);
-    box.innerHTML = res.length ? res.map(([k, label, rs]) => `<h3>${esc(label)}${here[k] && k !== 'here' ? ' <span class="here">on this tab</span>' : ''}</h3>${rs.map((r) => { items.push({ k, r }); return `<a role="option" href="${esc(r.h)}" data-i="${items.length - 1}" id="sr-${items.length - 1}">${esc(r.n)}${r.d ? `<small>${esc(r.d)}</small>` : ''}<small class="dest">${esc(dest(k, r))}</small></a>`; }).join('')}`).join('')
+    box.innerHTML = res.length ? res.map(([k, label, rs]) => `<h3>${esc(label)}${here[k] && k !== 'here' ? ' <span class="here">on this tab</span>' : ''}</h3>${rs.map((r) => { items.push({ k, r }); return `<a role="option" href="${esc(r.h)}" data-i="${items.length - 1}" id="sr-${items.length - 1}">${esc(r.n)}${k === 'journals' ? doajBadge(searchId('journals', r), { link: false }) : ''}${r.d ? `<small>${esc(r.d)}</small>` : ''}<small class="dest">${esc(dest(k, r))}</small></a>`; }).join('')}`).join('')
       : '<div class="none">No matching journals, authors, institutions, topics or countries.</div>';
     // author search covers only the named expert set; say so when no author matched, and point to OpenAlex
     if (q.length >= 3 && !res.length) {
@@ -134,11 +135,20 @@ function initSearch() {
     const it = items[Number(a.dataset.i)]; const hd = getSearchHandler();
     if (it && hd && hd.kinds && hd.kinds[it.k]) { hd.run(it.k, it.r); return true; }
     if (it && it.k === 'institutions') { openInstitution(it.r); return true; }
+    if (it && it.k === 'journals') { openProfile('journal', { id: searchId('journals', it.r), name: it.r.n }); return true; }
+    if (it && it.k === 'authors') { openProfile('author', { id: searchId('authors', it.r), name: it.r.n }); return true; }
     location.hash = a.getAttribute('href'); return true;
   }
   box.addEventListener('click', (e) => { const a = e.target.closest('a[role="option"]'); if (!a) return; e.preventDefault(); go(a); hide(); input.blur(); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.search')) hide(); });
 }
 
+// profile links anywhere (tables, drawers, lists): capture phase so a table row's own click handler does not also fire
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a.plink'); if (!a) return;
+  e.preventDefault(); e.stopPropagation();
+  openProfile(a.dataset.pk, { id: a.dataset.pid, name: a.dataset.pname });
+}, true);
+
 window.addEventListener('hashchange', render);
-window.addEventListener('DOMContentLoaded', async () => { initShell(); initSearch(); await initSnapshot(); render(); });
+window.addEventListener('DOMContentLoaded', async () => { initShell(); initSearch(); await initSnapshot(); await loadDoaj(); render(); });

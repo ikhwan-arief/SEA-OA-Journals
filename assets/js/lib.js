@@ -131,7 +131,7 @@ export function downloadCsv(name, columns, rows, scope = '', title = '') {
   const q = (v) => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const m = currentMeta || {};
   const lines = [...(title ? [`# ${String(title).replace(/\n/g, ' ')}${document.querySelector('.page-head h1') ? ` (${document.querySelector('.page-head h1').textContent})` : ''}`] : []),
-    `# SEA-OA-Journals export; scope: ${scope || 'as displayed'}; data snapshot: ${m.snapshot_date || 'n/a'}; built: ${m.generated_at || 'n/a'}`,
+    `# SEA Open Access Observatory export; scope: ${scope || 'as displayed'}; data snapshot: ${m.snapshot_date || 'n/a'}; built: ${m.generated_at || 'n/a'}`,
     columns.map((c) => q(c.label)).join(','),
     ...rows.map((r) => columns.map((c) => q(c.csv ? c.csv(r) : r[c.key])).join(','))];
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -217,6 +217,8 @@ export function table(host, columns, data, { pageSize = 15, search = true, sortK
   host.innerHTML = `<div class="table-tools">${search ? `<input type="search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}">` : '<span></span>'}
     <div class="pager" aria-live="polite"></div></div><div class="table-wrap" tabindex="0" role="region" aria-label="${esc(caption || 'Data table')}"><table>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead><tr>${columns.map((c, i) =>
     `<th scope="col" data-k="${c.key}" class="${c.num ? 'num' : ''} ${stickyAt(c, i) ? 'sticky' : ''}" aria-sort="none"><button type="button">${esc(c.label)}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div>`;
+  // wide tables (country columns, heatmaps, matrices): keep readable column widths and scroll horizontally
+  if (columns.length > 6) { host.querySelector('.table-wrap').classList.add('heat-wrap'); host.querySelector('table').style.minWidth = `${200 + 100 * (columns.length - 1)}px`; }
   const tbody = host.querySelector('tbody'); const pager = host.querySelector('.pager');
   const sortVal = (r, c) => (c.sort ? c.sort(r) : r[c.key]);
   function draw() {
@@ -305,7 +307,7 @@ function framed(src, w, h, title) {
   ctx.fillStyle = '#24313a'; ctx.font = '600 16px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(title || '', pad, 28);
   ctx.drawImage(src, pad, head, w, h);
   ctx.fillStyle = '#667085'; ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
-  ctx.fillText(`SEA-OA-Journals · OpenAlex snapshot ${m.snapshot_date || ''} · Scimago SJR 2025`, pad, head + h + 20);
+  ctx.fillText(`SEA Open Access Observatory · OpenAlex snapshot ${m.snapshot_date || ''} · Scimago SJR 2025`, pad, head + h + 20);
   return c;
 }
 async function svgToCanvas(svg) {
@@ -419,42 +421,27 @@ export function searchId(kind, r) {
 }
 
 // ---------------------------------------------------------------- institution profile (opened from the global search on any tab)
-let instProfiles = null;
 /** Opens the profile drawer of a search-index institution item ({n, i}). */
-export async function openInstitution(item) {
-  if (!instProfiles) { try { instProfiles = (await load('institutions/profiles.json')).institutions; } catch (e) { instProfiles = {}; } }
-  const p = instProfiles[String(item.i)] || Object.values(instProfiles).find((x) => x.name === item.n);
-  if (!p) {
-    drawer.open({ title: item.n, subtitle: 'Institution', html: `<p class="note">No profile is available for this institution in this snapshot.</p>` });
-    return;
-  }
-  const cname = SEA_NAMES[p.cc] || p.cc;
-  const oaTot = Object.values(p.oa || {}).reduce((a, b) => a + b, 0) || 1;
-  const oaRows = Object.entries(p.oa || {}).sort((a, b) => b[1] - a[1])
-    .map(([k, n]) => `<dt>${esc(OA_LABEL[k] || k)} OA</dt><dd>${fmt(n)} <small>(${pct(n / oaTot, 1, true)})</small></dd>`).join('');
-  const go = (h, t) => `<a class="btn ghost small" href="${esc(h)}" data-nav>${esc(t)}</a>`;
-  const html = `
-    <dl class="dl">
-      <dt>Country</dt><dd>${esc(cname)} <small>(rank ${fmt(p.rank_in_country)} by OA works)</small></dd>
-      <dt>SEA OA works</dt><dd>${fmt(p.works)}</dd>
-      <dt>Citations to these works</dt><dd>${fmt(p.cites)}</dd>
-      <dt>Mean FWCI</dt><dd>${p.mean_fwci == null ? '–' : fmt(p.mean_fwci, 2)}</dd>
-      <dt>Top 10% cited share</dt><dd>${pct(p.top10_share, 1, true)}</dd>
-      <dt>Publication years</dt><dd>${esc(p.first_year)}–${esc(p.last_year)}</dd>
-    </dl>
-    <h3>Main subfields</h3>
-    <ul class="plain">${(p.subfields || []).map((s) => `<li>${esc(s.name)} <small>${fmt(s.works)} works</small></li>`).join('') || '<li class="note">Not available</li>'}</ul>
-    <h3>OA route</h3><dl class="dl">${oaRows || '<dt>–</dt><dd>Not available</dd>'}</dl>
-    <h3>Leading experts affiliated here</h3>
-    ${p.experts && p.experts.length ? `<ul class="plain">${p.experts.map((e) => `<li><a href="#/experts/${e.subfield}/a/${e.author}" data-nav>${esc(e.name)}</a> <small>h-index ${fmt(e.h)} in subfield</small></li>`).join('')}</ul>
-      ${p.n_experts > p.experts.length ? `<p class="note">${fmt(p.n_experts)} listed experts in total; the 10 with the highest h-index are shown.</p>` : ''}`
-    : '<p class="note">None of the listed experts (top 40 per subfield) has this as main SEA affiliation.</p>'}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
-      ${go(`#/country/${p.cc},`, `${cname} in Country Comparator`)}
-      ${p.in_network ? go(`#/networks/institutions/_/id/${p.id}`, 'Locate in institution network') : ''}
-      ${extLink(instUrl(p), 'Institution website / OpenAlex ↗')}
-    </div>
-    <p class="note" style="margin-top:12px">Counts: distinct SEA OA works with at least one author whose first SEA affiliation is this institution (OpenAlex snapshot).</p>`;
-  drawer.open({ title: p.name, subtitle: `Institution · ${cname}`, html,
-    onMount: (b) => b.addEventListener('click', (e) => { if (e.target.closest('a[data-nav]')) drawer.close(); }) });
+export function openInstitution(item) { return openProfile('institution', { id: item.i ?? item.id, name: item.n ?? item.name }); }
+
+// ---------------------------------------------------------------- entity profile panel (assets/js/profiles.js, loaded on demand)
+/** Opens the right-hand profile panel: kind = journal | publisher | institution | country | author | subfield | work. */
+export function openProfile(kind, ref) { return import('./profiles.js').then((m) => m.openProfile(kind, ref)); }
+/** A name that opens its profile panel (clicks are handled once in app.js, before any table-row handler). */
+export function profileLink(kind, ref, text) {
+  return `<a href="#" class="plink" data-pk="${esc(kind)}" data-pid="${esc(ref.id ?? '')}" data-pname="${esc(ref.name ?? '')}">${esc(text ?? ref.name ?? '')}</a>`;
+}
+
+// ---------------------------------------------------------------- DOAJ badge (OpenAlex sources.is_in_doaj)
+let doajIds = {};
+/** Loads web/data/journals/doaj.json once (built by scripts/build_doaj_flags.py); call before rendering views. */
+export async function loadDoaj() { try { doajIds = (await load('journals/doaj.json')).ids || {}; } catch (e) { doajIds = {}; } }
+export function inDoaj(id) { return id != null && Object.prototype.hasOwnProperty.call(doajIds, String(id)); }
+/** Small "DOAJ" badge linking to the journal's DOAJ record (empty string when the journal is not in DOAJ). */
+export function doajBadge(id, { link = true } = {}) {
+  if (!inDoaj(id)) return '';
+  if (!link) return ' <span class="doaj" title="Indexed in DOAJ (Directory of Open Access Journals), per OpenAlex">DOAJ</span>';
+  const issn = doajIds[String(id)];
+  const href = issn ? `https://doaj.org/toc/${encodeURIComponent(issn)}` : 'https://doaj.org/';
+  return ` <a class="doaj" href="${href}" target="_blank" rel="noopener" title="Indexed in DOAJ (Directory of Open Access Journals), per OpenAlex">DOAJ</a>`;
 }

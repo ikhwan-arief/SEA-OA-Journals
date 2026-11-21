@@ -7,6 +7,8 @@
 import { load, fmt, pct, esc, badge, table, chart, canvasIn, numberAxis, SEA, SEA_NAMES, COUNTRY_COLORS, OA_STATUSES, OA_LABEL, oaColor,
   QUARTILES, QUARTILE_LABEL, quartileColor, pageHead, panel, body, viewData, provenance, insight, drawer, emptyState, resetRoute,
   journalUrl, instUrl, authorUrl, extLink, countryChips, bindCountryChips } from '../lib.js';
+import { doajBadge, inDoaj } from '../lib.js';
+import { openProfile, profileLink } from '../lib.js';
 import { setSearchHandler, searchId } from '../lib.js';
 
 const DEFAULT = ['ID', 'MY', 'TH', 'SG', 'VN', 'PH'];
@@ -170,7 +172,11 @@ export async function render(main, [codes = '']) {
     return `<span class="heat" style="background:rgba(15,118,110,${(0.08 + 0.85 * a).toFixed(3)});color:${dark ? '#fff' : 'var(--soa-text)'}" title="${fmt(v.works)} OA works">${v.share.toFixed(1)}%</span>`; };
   const sfRows = sfNames.map((n) => Object.assign({ name: n }, ...sel.map((c) => ({ [c]: sfVal(c, n) }))));
   const sfCols = [{ key: 'name', label: 'Subfield' }, ...sel.map((c) => ({ key: c, label: SEA_NAMES[c], num: true, sort: (r) => (r[c] ? r[c].share : -1), render: (r) => heat(r[c]), csv: (r) => (r[c] ? r[c].share.toFixed(2) : '') }))];
-  table(body(main, 'k-sf'), sfCols, sfRows, { pageSize: 15, sortKey: sel[0], caption: 'Subfield profile heatmap' });
+  const sfCols2 = sfCols.map((c, i) => (i === 0 ? { ...c, sticky: true } : c)); // subfield name stays visible while scrolling
+  table(body(main, 'k-sf'), sfCols2, sfRows, { pageSize: 15, sortKey: sel[0], caption: 'Subfield profile heatmap' });
+  // horizontal scroll: fixed minimum column widths so many countries do not squeeze the cells
+  body(main, 'k-sf').querySelector('.table-wrap').classList.add('heat-wrap');
+  body(main, 'k-sf').querySelector('table').style.minWidth = `${220 + 92 * sel.length}px`;
   const sfNote = document.createElement('p'); sfNote.className = 'note';
   sfNote.innerHTML = `Cell = share of the country's OA works in the subfield; colour scale 0–${sfMax.toFixed(1)}%. – = not among that country's top 20 subfields. Hover a cell for the count.`;
   body(main, 'k-sf').appendChild(sfNote);
@@ -204,14 +210,12 @@ export async function render(main, [codes = '']) {
     const d = detailData();
     det.innerHTML = `${state.detail === 'ALL' ? '<p class="note">Lists of the selected countries combined; counts are summed per country (a co-authored work can be counted for more than one country).</p>' : ''}
       <div class="grid"><div class="span-6"><h3>Top publication venues</h3><div id="dj"></div></div><div class="span-6"><h3>Top institutions</h3><div id="di"></div></div><div class="span-6"><h3>Leading authors</h3><div id="da"></div></div><div class="span-6"><h3>Top funders</h3><div id="df"></div></div></div>`;
-    table(det.querySelector('#dj'), [{ key: 'name', label: 'Venue', render: (r) => extLink(journalUrl(r), esc(r.name)) }, { key: 'quartile', label: 'SJR', render: (r) => badge(r.quartile) },
+    table(det.querySelector('#dj'), [{ key: 'name', label: 'Venue', render: (r) => profileLink('journal', { id: r.id, name: r.name }, r.name) + doajBadge(r.id), csv: (r) => r.name }, { key: 'quartile', label: 'SJR', render: (r) => badge(r.quartile) },
       { key: 'works', label: 'OA works', num: true, render: (r) => fmt(r.works) }, { key: 'cites', label: 'Citations', num: true, render: (r) => fmt(r.cites) }], d.journals, { pageSize: 8, sortKey: 'works', caption: 'Top venues',
-      onRow: (r) => drawer.open({ title: r.name, subtitle: `Venue · ${d.name}`, html: `<dl class="dl"><dt>Publisher</dt><dd>${esc(r.publisher || 'Not available')}</dd><dt>ISSN-L</dt><dd>${esc(r.issn_l || 'Not available')}</dd>
-        <dt>SJR quartile</dt><dd>${badge(r.quartile)}</dd><dt>SJR 2025</dt><dd>${r.sjr ? fmt(r.sjr, 3) : 'Not indexed'}</dd><dt>OA works</dt><dd>${fmt(r.works)}</dd><dt>Citations</dt><dd>${fmt(r.cites)}</dd></dl>
-        <p>${extLink(journalUrl(r), r.url ? 'Visit journal website' : 'ISSN Portal record')}</p>` }) });
-    table(det.querySelector('#di'), [{ key: 'name', label: 'Institution', render: (r) => extLink(instUrl(r), esc(r.name || `I${r.id}`)) },
+      onRow: (r) => openProfile('journal', { id: r.id, name: r.name }) });
+    table(det.querySelector('#di'), [{ key: 'name', label: 'Institution', render: (r) => profileLink('institution', { id: r.id, name: r.name }, r.name || `I${r.id}`), csv: (r) => r.name },
       { key: 'works', label: 'OA works', num: true, render: (r) => fmt(r.works) }, { key: 'cites', label: 'Citations', num: true, render: (r) => fmt(r.cites) }], d.institutions, { pageSize: 8, sortKey: 'works', caption: 'Top institutions' });
-    table(det.querySelector('#da'), [{ key: 'name', label: 'Author', render: (r) => extLink(authorUrl(r), esc(r.name)) },
+    table(det.querySelector('#da'), [{ key: 'name', label: 'Author', render: (r) => profileLink('author', { id: r.author, name: r.name }, r.name), csv: (r) => r.name },
       { key: 'h', label: 'h-index', num: true }, { key: 'works', label: 'OA works', num: true, render: (r) => fmt(r.works) }, { key: 'cites', label: 'Citations', num: true, render: (r) => fmt(r.cites) }],
     d.authors, { pageSize: 8, sortKey: state.detail === 'ALL' ? 'cites' : 'h', caption: 'Leading authors' });
     table(det.querySelector('#df'), [{ key: 'name', label: 'Funder' }, { key: 'works', label: 'OA works', num: true, render: (r) => fmt(r.works) }], d.funders, { pageSize: 8, search: false, sortKey: 'works', caption: 'Top funders' });

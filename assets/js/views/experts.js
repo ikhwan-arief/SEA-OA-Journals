@@ -8,6 +8,7 @@
 //         (legacy #/experts/<subfield>[/a/<author>] still works)
 import { load, tryLoad, esc, fmt, compact, kpis, bindKpiDefs, table, chart, canvasIn, numberAxis, SEA, SEA_NAMES, COUNTRY_COLORS, oaLink, css,
   pageHead, panel, body, viewData, provenance, insight, drawer, emptyState, partialWarning, resetRoute , authorUrl, extLink, countryChips, bindCountryChips } from '../lib.js';
+import { openProfile, profileLink } from '../lib.js';
 import { setSearchHandler, searchId, setCountryChips, openInstitution } from '../lib.js';
 import { renderNetwork, legendHtml, metricsHtml } from '../network.js';
 
@@ -39,7 +40,12 @@ export async function render(main, args) {
   const scopeRec = d.scope || d.subfield;
   const scopeName = subRec ? `${subRec.name} (${subRec.field})` : topicRec ? topicRec.name : 'All topics';
   const subOptions = topicRec ? subs.filter((s) => String(s.field_id) === String(topicRec.id)) : subs;
-  const state = { basis: 'h', ccs: [...SEA] };
+  const scopeKey = subRec ? String(subRec.id) : topicRec ? `field_${topicRec.id}` : 'all';
+  const yd = await tryLoad(`experts/years/${scopeKey}.json`);
+  const [YA, YB] = (yd && yd.years) || [1990, 2026];
+  const WINS = { all: 'All years', w10: `${YB - 9}–${YB} (last 10 years)`, w5: `${YB - 4}–${YB} (last 5 years)` };
+  const state = { basis: 'h', ccs: [...SEA], win: 'all', y0: YA, y1: YB, list: d.experts };
+  const yOpts = (v) => Array.from({ length: YB - YA + 1 }, (_, k) => YA + k).map((y) => `<option value="${y}" ${y === v ? 'selected' : ''}>${y}</option>`).join('');
   const items = [
     { label: 'SEA OA works', value: compact(scopeRec.works), unit: 'works', sub: esc(scopeRec.domain || ''), def: 'OA works whose OpenAlex primary topic falls in the selected topic / subfield.' },
     { label: 'Citations', value: compact(scopeRec.cites), def: 'Sum of OpenAlex cited_by_count of these works.' },
@@ -52,9 +58,12 @@ export async function render(main, args) {
     ${pageHead('Expert & Topic Mapper', 'Who are the leading researchers in a given topic or subfield, and what do their productivity and impact profiles look like?')}
     <div class="scope-bar" role="group" aria-label="Expert filters">
       ${countryChips(state.ccs)}
-      <p class="note" style="flex-basis:100%;margin:0">Country filter applies to the expert ranking (expert's main SEA country) and the country contribution chart; totals and topics cover all countries.</p>
+      <p class="note" style="flex-basis:100%;margin:0">Country filter applies to the expert ranking (expert's main SEA country) and the country contribution chart. The expert ranking is recomputed for the chosen period (h-index from works published in that period); the year range applies to the topic and country charts. KPI totals and the co-authorship network cover all years.</p>
       <label class="field">1. Topic<select id="topic"><option value="">All Topics</option>${fields.map((f) => `<option value="${f.id}" ${topicRec && f.id === topicRec.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
       <label class="field">2. Subfield (sub-topic)<select id="sub"><option value="">All Subfields${topicRec ? ` in ${esc(topicRec.name)}` : ''}</option>${subOptions.slice().sort((x, y) => x.name.localeCompare(y.name)).map((s) => `<option value="${s.id}" ${subRec && s.id === subRec.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="field">Expert ranking period<select id="win">${Object.entries(WINS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+      ${yd ? `<div class="yr-range" role="group" aria-label="Publication years for topics and countries"><span class="lbl">Topics &amp; countries: years</span>
+        <select id="ty0" aria-label="From year">${yOpts(YA)}</select><span>to</span><select id="ty1" aria-label="To year">${yOpts(YB)}</select></div>` : ''}
       <label class="field">Ranking basis<select id="basis">${Object.entries(BASES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
       <button type="button" class="btn ghost" id="reset">Reset filters</button>
     </div>
@@ -77,17 +86,11 @@ export async function render(main, args) {
   });
   main.querySelector('#reset').addEventListener('click', () => resetRoute('#/experts'));
 
-  const openExpert = (r) => drawer.open({ title: r.name, subtitle: `Expert profile · ${scopeName}`,
-    html: `<dl class="dl"><dt>Main SEA affiliation</dt><dd>${esc(r.inst_name || 'Not available')}</dd><dt>Country</dt><dd>${esc(SEA_NAMES[r.cc] || r.cc || 'Not available')}</dd>
-      <dt>Rank (h-index basis)</dt><dd>${r.rk}</dd><dt>h-index (selected corpus)</dt><dd>${r.h}</dd><dt>OA works</dt><dd>${fmt(r.works)}</dd>
-      <dt>Citations</dt><dd>${fmt(r.cites)}</dd><dt>Mean FWCI</dt><dd>${fmt(r.mean_fwci, 2)}</dd><dt>Top-10% cited works</dt><dd>${fmt(r.top10)}</dd>
-      <dt>Active years</dt><dd>${r.first_year}–${r.last_year}</dd><dt>OpenAlex ID</dt><dd><code class="code-sm">A${r.author}</code></dd></dl>
-      <p>${r.orcid ? extLink(r.orcid, 'ORCID profile') : 'No ORCID iD recorded'}${!r.orcid ? ` · ${extLink(authorUrl(r), 'Author record')}` : ''}</p>
-      <p class="note">h-index is computed only over the selected scope's SEA OA works and is not comparable with database-wide h-indices.</p>` });
+  const openExpert = (r) => openProfile('author', { id: r.author, name: r.name });
   const cols = [
     { key: 'rank', label: 'Rank', num: true },
     { key: 'name', label: 'Author', render: (r) => `${esc(r.name)}${r.orcid ? ' <span class="chip" title="Has ORCID">ORCID</span>' : ''}` },
-    { key: 'inst_name', label: 'Main SEA affiliation', render: (r) => esc(r.inst_name || 'Not available') },
+    { key: 'inst_name', label: 'Main SEA affiliation', render: (r) => (r.inst_name ? profileLink('institution', { id: r.inst, name: r.inst_name }, r.inst_name) : 'Not available'), csv: (r) => r.inst_name || '' },
     { key: 'cc', label: 'Country', render: (r) => esc(SEA_NAMES[r.cc] || r.cc || ''), csv: (r) => SEA_NAMES[r.cc] || r.cc },
     { key: 'h', label: 'h-index', num: true },
     { key: 'works', label: 'OA works', num: true, render: (r) => fmt(r.works) },
@@ -96,28 +99,53 @@ export async function render(main, args) {
     { key: 'top10', label: 'Top-10% works', num: true },
     { key: 'last_year', label: 'Active', render: (r) => `${r.first_year}–${r.last_year}`, csv: (r) => `${r.first_year}-${r.last_year}` },
   ];
-  const ranked = () => d.experts.filter((r) => state.ccs.includes(r.cc)).slice()
+  const ranked = () => state.list.filter((r) => state.ccs.includes(r.cc)).slice()
     .sort((a, b) => (b[state.basis] ?? -1) - (a[state.basis] ?? -1) || b.cites - a.cites).map((r, i) => ({ ...r, rank: i + 1 }));
   const tbl = table(body(main, 'e-ex'), cols, ranked(), { pageSize: 15, sortKey: 'rank', desc: false, placeholder: 'Filter listed authors or institutions…', onRow: openExpert, caption: 'Leading experts' });
-  const relabel = () => { main.querySelector('#basisLbl').textContent = `Ranking basis: ${BASES[state.basis]}${state.ccs.length < SEA.length ? `; countries: ${state.ccs.map((c) => SEA_NAMES[c]).join(', ') || 'none'}` : ''}`; };
+  const relabel = () => { main.querySelector('#basisLbl').textContent = `Ranking basis: ${BASES[state.basis]}; period: ${WINS[state.win]}${state.ccs.length < SEA.length ? `; countries: ${state.ccs.map((c) => SEA_NAMES[c]).join(', ') || 'none'}` : ''}`; };
   relabel();
   const upd = () => { tbl.update(ranked()); relabel(); };
   main.querySelector('#basis').addEventListener('change', (e) => { state.basis = e.target.value; upd(); });
   bindCountryChips(main, (v) => { state.ccs = v; upd(); drawCc(); });
   viewData(main, 'e-ex', () => ({ scope: `${scope}; ranking basis: ${BASES[state.basis]}`, columns: cols, rows: ranked() }));
 
-  chart(canvasIn(body(main, 'e-tp'), 'tall', 'Bar chart of dominant topics'), { type: 'bar', data: { labels: d.topics.map((r) => r.topic),
-    datasets: [{ label: 'OA works', data: d.topics.map((r) => r.works), backgroundColor: css('--soa-primary') }] },
-  options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => `Mean FWCI ${fmt(d.topics[c.dataIndex].mean_fwci, 2)}` } } },
-    scales: { x: numberAxis('OA works (count)'), y: { ticks: { callback(v) { const l = this.getLabelForValue(v); return l.length > 42 ? `${l.slice(0, 40)}…` : l; } } } } } });
-  viewData(main, 'e-tp', () => ({ scope, columns: [{ key: 'topic', label: 'Topic' }, { key: 'works', label: 'OA works', num: true }, { key: 'mean_fwci', label: 'Mean FWCI', num: true }], rows: d.topics }));
-  const ccRows = () => d.countries.filter((r) => state.ccs.includes(r.cc));
+  // topics within the chosen publication years (from experts/years/<scope>.json); all years = the built top 15
+  const fullYears = () => state.y0 === YA && state.y1 === YB;
+  const topicRows = () => {
+    if (!yd || fullYears()) return d.topics;
+    const m = new Map();
+    yd.topics.forEach(([t, y, n, fs, fn]) => { if (y < state.y0 || y > state.y1) return; const r = m.get(t) || { topic: t, works: 0, fs: 0, fn: 0 }; r.works += n; r.fs += fs; r.fn += fn; m.set(t, r); });
+    return [...m.values()].sort((x, y) => y.works - x.works).slice(0, 15).map((r) => ({ topic: r.topic, works: r.works, mean_fwci: r.fn ? r.fs / r.fn : null }));
+  };
+  const drawTp = () => {
+    const tr = topicRows();
+    chart(canvasIn(body(main, 'e-tp'), 'tall', 'Bar chart of dominant topics'), { type: 'bar', data: { labels: tr.map((r) => r.topic),
+      datasets: [{ label: 'OA works', data: tr.map((r) => r.works), backgroundColor: css('--soa-primary') }] },
+    options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => `Mean FWCI ${fmt(tr[c.dataIndex].mean_fwci, 2)}` } } },
+      scales: { x: numberAxis('OA works (count)'), y: { ticks: { callback(v) { const l = this.getLabelForValue(v); return l.length > 42 ? `${l.slice(0, 40)}…` : l; } } } } } });
+  };
+  drawTp();
+  viewData(main, 'e-tp', () => ({ scope: `${scope}; ${fullYears() ? 'all years' : `${state.y0}–${state.y1}`}`, columns: [{ key: 'topic', label: 'Topic' }, { key: 'works', label: 'OA works', num: true }, { key: 'mean_fwci', label: 'Mean FWCI', num: true }], rows: topicRows() }));
+  const ccRows = () => {
+    if (!yd || fullYears()) return d.countries.filter((r) => state.ccs.includes(r.cc));
+    const m = new Map(); yd.countries.forEach(([c, y, n]) => { if (y >= state.y0 && y <= state.y1) m.set(c, (m.get(c) || 0) + n); });
+    return [...m.entries()].map(([cc, works]) => ({ cc, works })).filter((r) => state.ccs.includes(r.cc)).sort((x, y) => y.works - x.works);
+  };
   const drawCc = () => {
     chart(canvasIn(body(main, 'e-cc'), 'tall', 'Doughnut chart of country contribution'), { type: 'doughnut', data: { labels: ccRows().map((r) => SEA_NAMES[r.cc] || r.cc),
       datasets: [{ data: ccRows().map((r) => r.works), backgroundColor: ccRows().map((r) => COUNTRY_COLORS[r.cc]) }] },
     options: { plugins: { legend: { position: 'right' } } } });
   };
   drawCc();
+  main.querySelector('#win').addEventListener('change', async (e) => {
+    state.win = e.target.value;
+    state.list = state.win === 'all' ? d.experts : ((await tryLoad(`experts/win/${state.win}/${scopeKey}.json`)) || { experts: [] }).experts;
+    upd();
+  });
+  ['#ty0', '#ty1'].forEach((q) => main.querySelector(q)?.addEventListener('change', () => {
+    const a = Number(main.querySelector('#ty0').value); const b = Number(main.querySelector('#ty1').value);
+    state.y0 = Math.min(a, b); state.y1 = Math.max(a, b); drawTp(); drawCc();
+  }));
   setSearchHandler({ kinds: { countries: 'filter experts by country', institutions: 'institution profile; filter experts' }, run: (k, r) => {
     if (k === 'institutions') {
       const inp = body(main, 'e-ex').querySelector('.table-tools input[type="search"]');
@@ -137,7 +165,7 @@ export async function render(main, args) {
   const side = body(main, 'e-side');
   if (net && net.nodes.length) {
     side.innerHTML = `${metricsHtml(net.meta, true)}<h3 style="font-size:.8125rem;margin:12px 0 6px">Communities</h3><div class="legend">${legendHtml(net.nodes, 'cluster')}</div>
-      <h3 style="font-size:.8125rem;margin:12px 0 6px">Experts (keyboard list)</h3><ul class="node-list light">${net.nodes.map((n) => `<li><button type="button" data-id="${n.id}">${esc(n.label)}</button></li>`).join('')}</ul>`;
+      <h3 style="font-size:.8125rem;margin:12px 0 6px">Experts on this map <span style="font-weight:400;color:var(--soa-text-muted)">(click a name to find it)</span></h3><ul class="node-list light">${net.nodes.map((n) => `<li><button type="button" data-id="${n.id}">${esc(n.label)}</button></li>`).join('')}</ul>`;
     body(main, 'e-net').innerHTML = '<div class="net-stage"></div>';
     try {
       ctl = renderNetwork(body(main, 'e-net').querySelector('.net-stage'), net, { colorBy: 'cluster', sizeBy: 'h',

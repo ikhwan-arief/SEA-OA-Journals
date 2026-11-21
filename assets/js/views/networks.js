@@ -4,6 +4,8 @@
  */
 // 6.3 Network Explorer: dark full-bleed canvas, filters left, details right, accessible list fallback.
 import { load, esc, fmt, badge, oaLink, SEA, SEA_NAMES, OA_LABEL, pageHead, provenance, table, downloadCsv , workUrl, journalUrl, instUrl, authorUrl, extLink, countryChips, bindCountryChips, setCountryChips, csvName } from '../lib.js';
+import { doajBadge, inDoaj } from '../lib.js';
+import { openProfile } from '../lib.js';
 import { setSearchHandler, searchId } from '../lib.js';
 import { renderNetwork, legendHtml, metricsHtml, fold, rankMatch } from '../network.js';
 
@@ -64,9 +66,9 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
         <h2>${esc(data.meta.title)}</h2>
         ${metricsHtml(data.meta)}
         <p class="note" id="active"></p>
-        <h3>Selection</h3><div class="info" id="info"><p class="note">Click a node, Shift-drag a region, or pick from the list below.</p></div>
-        <h3>Nodes (keyboard list)</h3><ul class="node-list" id="nlist"></ul>
-        <div class="png-tools"><button class="btn ghost small" id="csv" type="button">Download nodes &amp; links (CSV)</button></div>
+        <h3>Selected item</h3><div class="info" id="info"><p class="note">Click a circle on the map, hold Shift and drag to select an area, or pick a name from the list below.</p></div>
+        <h3>${esc(conf.unit === 'Publication' ? 'Publications' : conf.unit + 's')} on this map</h3><p class="note" style="margin:0 0 6px">Largest first; click a name to find it on the map.</p><ul class="node-list" id="nlist"></ul>
+        <div class="png-tools" hidden><button class="btn ghost small" id="csv" type="button" hidden>Download nodes &amp; links (CSV)</button></div>
       </aside>
     </div>
     ${provenance(`${esc(conf.label)}${subId ? `; ${subLabel.toLowerCase()}: ${esc((subList.find((s) => String(s.id) === subId) || {}).name || '')}` : ''}`, '<span><strong>Layout:</strong> ForceAtlas2, Louvain communities, strongest links kept per node</span>')}`;
@@ -89,9 +91,10 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
     if (a.sjr) rows.push(['SJR score', fmt(a.sjr, 3)]);
     rows.push(['Cluster', `Cluster ${(a.cluster ?? 0) + 1}`]);
     const href = conf.prefix === 'W' ? workUrl(a) : conf.prefix === 'S' ? journalUrl(a) : conf.prefix === 'I' ? instUrl(a) : authorUrl({ ...a, author: a.id });
-    return `<p><strong>${extLink(href, esc(a.label))}</strong>${a.doi ? `<br><small>${esc(a.doi.replace('https://doi.org/', 'DOI '))}</small>` : ''}</p>
+    return `<p><strong>${extLink(href, esc(a.label))}</strong>${conf.prefix === 'S' ? doajBadge(a.id) : ''}${a.doi ? `<br><small>${esc(a.doi.replace('https://doi.org/', 'DOI '))}</small>` : ''}</p>
       <dl class="metrics">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
-      <p class="note">${fmt(nb.length)} linked nodes</p><ul class="node-list">${nb.slice(0, 30).map((x) => `<li><button type="button" data-id="${x.id}">${esc(x.label)}</button></li>`).join('')}</ul>`;
+      <p><button type="button" class="btn small" data-profile="${esc(String(a.id))}">Open full profile</button></p>
+      <p class="note">${fmt(nb.length)} linked items</p><ul class="node-list">${nb.slice(0, 30).map((x) => `<li><button type="button" data-id="${x.id}">${esc(x.label)}</button></li>`).join('')}</ul>`;
   };
 
   const notHere = (nm) => `<p class="note"><strong>${esc(nm)}</strong> is not in this network: the map shows only the ${esc(conf.unit.toLowerCase())}s selected for it${subList.length ? ` (this ${subLabel.toLowerCase()})` : ''}. Try another network type or ${subList.length ? subLabel.toLowerCase() : 'filter'}.</p>`;
@@ -100,8 +103,8 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
     const box = main.querySelector('#hits'); if (!box) return;
     if (!String(q || '').trim()) { box.innerHTML = ''; return; }
     box.innerHTML = hits.length
-      ? `<p class="note">${fmt(hits.length)} matching node${hits.length > 1 ? 's' : ''}${hits.length > 1 ? ' (best match focused)' : ''}</p>${hits.length > 1 ? `<ul class="node-list">${hits.slice(0, 30).map((x) => `<li><button type="button" data-id="${x.id}">${esc(x.label)}</button></li>`).join('')}</ul>` : ''}`
-      : `<p class="note">No visible node matches “${esc(q)}”${state.ccs.length < SEA.length || state.minW ? ' with the current filters' : ''}.</p>`;
+      ? `<p class="note">${fmt(hits.length)} match${hits.length > 1 ? 'es' : ''} on this map${hits.length > 1 ? ' (best match focused)' : ''}</p>${hits.length > 1 ? `<ul class="node-list">${hits.slice(0, 30).map((x) => `<li><button type="button" data-id="${x.id}">${esc(x.label)}</button></li>`).join('')}</ul>` : ''}`
+      : `<p class="note">Nothing on this map matches “${esc(q)}”${state.ccs.length < SEA.length || state.minW ? ' with the current filters' : ''}.</p>`;
   }
   let ctl = null;
   const state = { ccs: [...SEA], y0: yMin, y1: yMax, minW: 0, sizeBy: conf.sizes[0] };
@@ -113,19 +116,19 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
   function refreshList() {
     const vis = data.nodes.filter(keep).slice().sort((a, b) => (b[state.sizeBy] || 0) - (a[state.sizeBy] || 0));
     nlist.innerHTML = vis.slice(0, 80).map((n) => `<li><button type="button" data-id="${n.id}">${esc(n.label)} <small>(${fmt(n[state.sizeBy])})</small></button></li>`).join('')
-      || '<li class="note">No nodes match the current filters.</li>';
+      || '<li class="note">Nothing on this map matches the current filters.</li>';
     const active = [`min. link strength ≥ ${state.minW.toFixed(3)}`];
     if (countries.length && state.ccs.length < SEA.length) active.push(`countries = ${state.ccs.map((c) => SEA_NAMES[c]).join(', ') || 'none'}`);
     if (conf.time && yMin) active.push(`years ${state.y0}–${state.y1}`);
-    main.querySelector('#active').textContent = `Active filters: ${active.join('; ')} · visible nodes ${fmt(vis.length)}${ctl ? ` · visible links ${fmt(ctl.visibleEdges())}` : ''}`;
+    main.querySelector('#active').textContent = `Active filters: ${active.join('; ')} · items shown ${fmt(vis.length)}${ctl ? ` · visible links ${fmt(ctl.visibleEdges())}` : ''}`;
   }
   const stage = main.querySelector('#stage');
   try {
     ctl = renderNetwork(stage, data, { colorBy: 'cluster', sizeBy: conf.sizes[0],
-      onSelect: (a, nb) => { info.innerHTML = a ? describe(a, nb) : '<p class="note">Click a node, Shift-drag a region, or pick from the list below.</p>'; },
+      onSelect: (a, nb) => { info.innerHTML = a ? describe(a, nb) : '<p class="note">Click a circle on the map, hold Shift and drag to select an area, or pick a name from the list below.</p>'; },
       onBox: (sel) => {
         const cl = new Map(); sel.forEach((x) => cl.set(x.cluster, (cl.get(x.cluster) || 0) + 1));
-        info.innerHTML = `<p><strong>${fmt(sel.length)} nodes selected</strong></p><p class="note">${[...cl.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c, n]) => `Cluster ${c + 1}: ${n}`).join(' · ')}</p>
+        info.innerHTML = `<p><strong>${fmt(sel.length)} items selected</strong></p><p class="note">${[...cl.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c, n]) => `Cluster ${c + 1}: ${n}`).join(' · ')}</p>
           <ul class="node-list">${sel.slice(0, 40).map((x) => `<li><button type="button" data-id="${x.id}">${esc(x.label)}</button></li>`).join('')}</ul>`;
       } });
     if (qVal && ctl) {
@@ -146,7 +149,12 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
   const drawLegend = (by) => { legend.innerHTML = legendHtml(data.nodes, by); };
   drawLegend('cluster');
   refreshList();
-  const onPick = (e) => { const b = e.target.closest('button[data-id]'); if (b && ctl) ctl.focusNode(b.dataset.id); };
+  const PK = { S: 'journal', I: 'institution', A: 'author', W: 'work' };
+  const onPick = (e) => {
+    const pb = e.target.closest('button[data-profile]');
+    if (pb) { const a = data.nodes.find((n) => String(n.id) === pb.dataset.profile) || {}; openProfile(PK[conf.prefix], { ...a, id: a.id, name: a.label }); return; }
+    const b = e.target.closest('button[data-id]'); if (b && ctl) ctl.focusNode(b.dataset.id);
+  };
   nlist.addEventListener('click', onPick); info.addEventListener('click', onPick); main.querySelector('#hits').addEventListener('click', onPick);
   main.querySelector('#color').addEventListener('change', (e) => { if (ctl) ctl.setColor(e.target.value); drawLegend(e.target.value); });
   main.querySelector('#size').addEventListener('change', (e) => { state.sizeBy = e.target.value; if (ctl) ctl.setSize(e.target.value); refreshList(); });
@@ -175,7 +183,7 @@ export async function render(main, [type = 'journals', subArg = '', qKey = '', q
   const openAt = (ty, sf, id, nm) => { location.hash = `#/networks/${ty}/${sf || '_'}/${id ? 'id' : 'q'}/${encodeURIComponent(id || nm)}${id ? `/${encodeURIComponent(nm)}` : ''}`; };
   setSearchHandler({
     kinds: { here: `focus on this map (${conf.unit.toLowerCase()})`, journals: 'locate in journal network', institutions: 'locate in institution network',
-      authors: 'locate in co-authorship network', topics: 'open this subfield’s network', ...(countries.length ? { countries: 'filter nodes by country' } : {}) },
+      authors: 'locate in co-authorship network', topics: 'open this subfield’s network', ...(countries.length ? { countries: 'filter the map by country' } : {}) },
     // nodes of the open map that match the query (shown first by the top-bar search, as "On this map")
     extra: (q) => { const nq = fold(q); if (!ctl || nq.length < 2) return [];
       return data.nodes.map((n) => [rankMatch(n.label, nq), n]).filter((x) => x[0] < 4).sort((x, y) => x[0] - y[0] || (y[1][state.sizeBy] || 0) - (x[1][state.sizeBy] || 0))
